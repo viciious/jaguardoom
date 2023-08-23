@@ -342,7 +342,7 @@ do_main:
         move.w  #0x0002,0xA130F0    /* standard mapping, sram disabled */
         bra.b   3f
 2:
-        move.w  #0x8000,0xA130F0    /* MED/MSD => map bank 0 to page 0, write disabled */
+        move.w  #0xC000,0xA130F0    /* MED/MSD => map bank 0 to page 0, write disabled */
 3:
         clr_rv
         move.w  #0x2000,sr          /* enable ints */
@@ -491,7 +491,7 @@ rd_med_sram:
         set_rv
         move.w  #0x801F,0xA130F0    /* map bank 0 to page 31, disable write */
         move.b  0(a0,d0.l),d1       /* read SRAM */
-        move.w  #0x8000,0xA130F0    /* map bank 0 to page 0, disable write */
+        move.w  #0xC000,0xA130F0    /* map bank 0 to page 0, disable write */
         bra.b   exit_rd_sram
 1:
         lea     0x000000,a0         /* use the lower 32K of page 28 */
@@ -499,7 +499,7 @@ rd_med_sram:
         set_rv
         move.w  #0x801C,0xA130F0    /* map bank 0 to page 28, disable write */
         move.b  0(a0,d0.l),d1       /* read SRAM */
-        move.w  #0x8000,0xA130F0    /* map bank 0 to page 0, disable write */
+        move.w  #0xC000,0xA130F0    /* map bank 0 to page 0, disable write */
 
 exit_rd_sram:
         clr_rv
@@ -547,7 +547,7 @@ wr_med_sram:
         set_rv
         move.w  #0xA01F,0xA130F0    /* map bank 0 to page 31, enable write */
         move.b  d0,0(a0,d1.l)       /* write SRAM */
-        move.w  #0x8000,0xA130F0    /* map bank 0 to page 0, disable write */
+        move.w  #0xC000,0xA130F0    /* map bank 0 to page 0, disable write */
         bra.b   exit_wr_sram
 1:
         lea     0x000000,a0         /* use the lower 32K of page 28 */
@@ -555,7 +555,7 @@ wr_med_sram:
         set_rv
         move.w  #0xA01C,0xA130F0    /* map bank 0 to page 28, enable write */
         move.b  d0,0(a0,d1.l)       /* write SRAM */
-        move.w  #0x8000,0xA130F0    /* map bank 0 to page 0, disable write */
+        move.w  #0xC000,0xA130F0    /* map bank 0 to page 0, disable write */
 
 exit_wr_sram:
         clr_rv
