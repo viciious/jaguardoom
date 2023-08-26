@@ -2218,30 +2218,75 @@ bump_fm:
         bne     8f                  /* z80 critical section, just exit */
 
         move.w  preread_cnt,d0
-        beq.b   11f
+        beq.w   11f
         subq.w  #1,d0
         move.w  d0,preread_cnt
 
         /* read a buffer */
         jsr     vgm_read
+        move.w  d0,d4
         z80rd   FM_BUFGEN,d0
         addq.b  #1,d0
         z80wr   FM_BUFGEN,d0
 
+        cmpi.w  #0,d4
+        beq.b   24f
+
+21:
         /* copy buffer to z80 sram */
-        movea.l vgm_ptr,a0
-        lea     0xA01000,a1
-        move.w  #0x01FF,d1          /* one buffer worth of data */
+        movea.l vgm_ptr,a3
+        lea     0xA01000,a4
+        move.w  d4,d1
+        subi.w  #1,d1
         move.w  offs68k,d2
         move.w  offsz80,d3
-        lea     0(a0,d2.w),a0
-        lea     0(a1,d3.w),a1
+        lea     0(a3,d2.w),a3
+        lea     0(a4,d3.w),a4
 22:
-        move.b  (a0)+,(a1)+
+        move.b  (a3)+,(a4)+
         dbra    d1,22b
 
-        addi.w  #0x0200,d2
-        addi.w  #0x0200,d3
+        cmpi.w  #0x0200,d4
+        beq.w   15f
+24:
+        add.w   d4,d2
+        add.w   d4,d3
+        move.w  d3,fm_loop2
+
+        /* reset and read the remainder */
+
+        jsr     vgm_reset           /* restart at start of compressed data */
+
+        move.w  d4,d0
+        move.w  #0x0200,d4
+        sub.w   d0,d4
+
+        /* skip fm_loop bytes */
+        move.l  fm_loop,d2
+
+        move.l  d4,-(sp)
+        move.l  d2,-(sp)
+        jsr     vgm_fixup
+        lea     8(sp),sp            /* clear the stack */
+        move.w  d0,d2
+
+        /* read remaining bytes */
+        move.l  d4,-(sp)
+        jsr     vgm_read2
+        lea     4(sp),sp            /* clear the stack */
+
+        /* copy buffer to z80 sram */
+        movea.l vgm_ptr,a3
+        move.w  d4,d1
+        subi.w  #1,d1
+        lea     0(a3,d2.w),a3
+23:
+        move.b  (a3)+,(a4)+
+        dbra    d1,23b
+
+25:
+        add.w   d4,d2
+        add.w   d4,d3
         andi.w  #0x7FFF,d2          /* 32KB buffer */
         andi.w  #0x0FFF,d3          /* 4KB buffer */
         move.w  d2,offs68k
@@ -2249,66 +2294,85 @@ bump_fm:
 11:
         move.b  REQ_ACT.w,d0
         cmpi.b  #0x01,d0
-        bne.b   5f
+        bne.w   5f
 
         /* read a buffer */
         jsr     vgm_read
+        move.w  d0,d4
         z80rd   FM_BUFGEN,d0
         addq.b  #1,d0
         z80wr   FM_BUFGEN,d0
 
+        cmpi.w  #0,d4
+        beq.b   16f
+
+12:
         /* copy buffer to z80 sram */
-        movea.l vgm_ptr,a0
-        lea     0xA01000,a1
-        move.w  #0x01FF,d1          /* one buffer worth of data */
+        movea.l vgm_ptr,a3
+        lea     0xA01000,a4
+        move.w  d4,d1
+        subi.w  #1,d1
         move.w  offs68k,d2
         move.w  offsz80,d3
-        lea     0(a0,d2.w),a0
-        lea     0(a1,d3.w),a1
-2:
-        move.b  (a0)+,(a1)+
-        dbra    d1,2b
+        lea     0(a3,d2.w),a3
+        lea     0(a4,d3.w),a4
+13:
+        move.b  (a3)+,(a4)+
+        dbra    d1,13b
 
-        addi.w  #0x0200,d2
-        addi.w  #0x0200,d3
+        cmpi.w  #0x0200,d4
+        beq.b   15f
+16:
+        add.w   d4,d2
+        add.w   d4,d3
+        move.w  d3,fm_loop2
+
+        /* reset and read the remainder */
+
+        jsr     vgm_reset           /* restart at start of compressed data */
+
+        move.w  d4,d0
+        move.w  #0x0200,d4
+        sub.w   d0,d4
+
+        /* skip fm_loop bytes */
+        move.l  fm_loop,d2
+        move.l  d4,-(sp)
+        move.l  d2,-(sp)
+        jsr     vgm_fixup
+        lea     8(sp),sp            /* clear the stack */
+        move.w  d0,d2
+
+        /* read remaining bytes */
+        move.l  d4,-(sp)
+        jsr     vgm_read2
+        lea     4(sp),sp            /* clear the stack */
+
+        /* copy buffer to z80 sram */
+        movea.l vgm_ptr,a3
+        move.w  d4,d1
+        subi.w  #1,d1
+        lea     0(a3,d2.w),a3
+14:
+        move.b  (a3)+,(a4)+
+        dbra    d1,14b
+15:
+        add.w   d4,d2
+        add.w   d4,d3
         andi.w  #0x7FFF,d2          /* 32KB buffer */
         andi.w  #0x0FFF,d3          /* 4KB buffer */
         move.w  d2,offs68k
         move.w  d3,offsz80
-        bra     7f
+        bra.b   7f
 5:
         cmpi.b  #0x02,d0
-        bne     7f                  /* unknown request, ignore */
+        bne.b   7f                  /* unknown request, ignore */
 
         /* music ended, check for loop */
         tst.w   fm_rep
         beq     7f                  /* no repeat, leave FM_IDX as 0 */
 
-        jsr     vgm_reset           /* restart at start of compressed data and read a buffer */
-        jsr     vgm_read
-|        jsr     vgm_read
-|        jsr     vgm_read
-|        jsr     vgm_read
-|        jsr     vgm_read
-|        jsr     vgm_read
-|        jsr     vgm_read            /* 4KB to fill Z80 sram buffer */
-
-        move.w  #6,preread_cnt      /* do six more vgm_reads */
-
-        z80wr   FM_BUFCSM,#0
-        z80wr   FM_BUFGEN,#2
-
-        movea.l vgm_ptr,a0
-        lea     0xA01000,a1         /* z80 sram buffer start */
-        move.w  #0x03FF,d1
-6:
-        move.b  (a0)+,(a1)+         /* copy vgm data from decompressor buffer to sram */
-        dbra    d1,6b
-
-        move.w  #0x0400,offs68k     /* 32K buffer */
-        move.w  #0x0400,offsz80     /* 4K buffer */
-
-        move.l  fm_loop,d0
+        move.w  fm_loop2,d0
         z80wr   FM_START,d0
         lsr.w   #8,d0
         z80wr   FM_START+1,d0       /* music start = loop offset */
@@ -2320,9 +2384,6 @@ bump_fm:
 8:
         move.w  #0x0000,0xA11100    /* Z80 deassert bus request */
 9:
-|        move.w  0xA11100,d0
-|        andi.w  #0x0100,d0
-|        beq.b   9b                  /* wait for bus released */
         movem.l (sp)+,d0-d7/a0-a6
         rts
 
@@ -2741,6 +2802,9 @@ fm_start:
         dc.l    0
         .global    fm_loop
 fm_loop:
+        dc.l    0
+        .global    fm_loop2
+fm_loop2:
         dc.l    0
         .global pcm_baseoffs
 pcm_baseoffs:

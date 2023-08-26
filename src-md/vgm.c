@@ -10,6 +10,8 @@ extern void *vgm_ptr;
 extern int pcm_baseoffs;
 extern int vgm_size;
 extern uint16_t cd_ok;
+extern int fm_loop;
+extern uint16_t offs68k;
 
 __attribute__((aligned(4))) uint8_t vgm_lzss_buf[VGM_LZSS_BUF_SIZE];
 
@@ -19,6 +21,7 @@ void lzss_reset(lzss_state_t* lzss) __attribute__((section(".data"), aligned(16)
 
 int vgm_setup(void* fm_ptr) __attribute__((section(".data"), aligned(16)));
 int vgm_read(void) __attribute__((section(".data"), aligned(16)));
+int vgm_read2(int cnt) __attribute__((section(".data"), aligned(16)));
 
 int vgm_setup(void* fm_ptr)
 {
@@ -42,14 +45,25 @@ int vgm_setup(void* fm_ptr)
     return vgm_read();
 }
 
-int vgm_reset(void)
+void vgm_reset(void)
 {
     lzss_reset(&vgm_lzss);
     vgm_ptr = vgm_lzss_buf;
-    return vgm_read();
 }
 
 int vgm_read(void)
 {
     return lzss_read(&vgm_lzss, VGM_READAHEAD);
+}
+
+int vgm_read2(int cnt)
+{
+    return lzss_read(&vgm_lzss, cnt);
+}
+
+int vgm_fixup(int cnt, int cnt2)
+{
+    vgm_lzss.outpos = VGM_READAHEAD - ((cnt + cnt2) & (VGM_READAHEAD-1));
+    lzss_read(&vgm_lzss, cnt);
+    return vgm_lzss.outpos;
 }
