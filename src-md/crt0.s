@@ -2229,6 +2229,9 @@ bump_fm:
         addq.b  #1,d0
         z80wr   FM_BUFGEN,d0
 
+        move.w  offs68k,d2
+        move.w  offsz80,d3
+
         cmpi.w  #0,d4
         beq.b   24f
 
@@ -2238,8 +2241,6 @@ bump_fm:
         lea     0xA01000,a4
         move.w  d4,d1
         subi.w  #1,d1
-        move.w  offs68k,d2
-        move.w  offsz80,d3
         lea     0(a3,d2.w),a3
         lea     0(a4,d3.w),a4
 22:
@@ -2303,6 +2304,9 @@ bump_fm:
         addq.b  #1,d0
         z80wr   FM_BUFGEN,d0
 
+        move.w  offs68k,d2
+        move.w  offsz80,d3
+
         cmpi.w  #0,d4
         beq.b   16f
 
@@ -2312,8 +2316,6 @@ bump_fm:
         lea     0xA01000,a4
         move.w  d4,d1
         subi.w  #1,d1
-        move.w  offs68k,d2
-        move.w  offsz80,d3
         lea     0(a3,d2.w),a3
         lea     0(a4,d3.w),a4
 13:
