@@ -2514,6 +2514,9 @@ load_font:
 
         .global bump_fm
 bump_fm:
+        tst.w   fm_idx
+        beq.b   999f
+
         move.w  sr,-(sp)
         move.w  #0x2700,sr          /* disable ints */
         tst.b   REQ_ACT.w
@@ -2523,6 +2526,7 @@ bump_fm:
         bne.b   0f                  /* buffer preread pending */
 99:
         move.w  (sp)+,sr            /* restore int level */
+999:
         rts
 
 0:
