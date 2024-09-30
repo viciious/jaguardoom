@@ -2597,19 +2597,25 @@ bump_fm:
 13:
         /* EOF reached */
         move.l  fm_loop,d0
+        andi.w  #0x01FF,d0          /* 1 read buffer */
         add.w   d3,d0
         andi.w  #0x0FFF,d0          /* 4KB buffer */
-        move.l  d0,fm_loop2         /* offset to z80 loop start */
+        move.w  d0,fm_loop2         /* offset to z80 loop start */
 
         /* reset */
         jsr     vgm_reset           /* restart at start of compressed data */
-        move.w  #0,offs68k
-        move.w  d3,offsz80
-        move.w  #7,preread_cnt      /* refill buffer if room */
-        bra.w   7f
+        move.l  fm_loop,d2
+        andi.l  #0xFFFFFE00,d2
+        beq.b   14f
+        move.l  d2,-(sp)
+        jsr     vgm_read2
+        addq.l  #4,sp
+        move.w  d0,d2
+        andi.w  #0x7FFF,d2          /* amount data pre-read (with wrap around) */
 14:
         move.w  d2,offs68k
         move.w  d3,offsz80
+        move.w  #7,preread_cnt      /* refill buffer if room */
         bra.w   7f
 
 5:
@@ -2625,9 +2631,13 @@ bump_fm:
 
         /* music ended, check for loop */
         tst.w   fm_rep
-        beq.w   7f                  /* no repeat, leave FM_IDX as 0 */
+        bne.b   50f                 /* repeat, loop vgm */
+        /* no repeat, reset FM */
+        jsr     rst_ym2612
+        bra.w   7f
 
-        move.l  fm_loop2,d0
+50:
+        move.w  fm_loop2,d0
         z80wr   FM_START,d0
         lsr.w   #8,d0
         z80wr   FM_START+1,d0       /* music start = loop offset */
@@ -3155,9 +3165,6 @@ fm_start:
         .global    fm_loop
 fm_loop:
         dc.l    0
-        .global    fm_loop2
-fm_loop2:
-        dc.l    0
         .global pcm_baseoffs
 pcm_baseoffs:
         dc.l    0
@@ -3179,6 +3186,8 @@ fm_idx:
 fm_stream:
         dc.w    0
 fm_stream_freq:
+        dc.w    0
+fm_loop2:
         dc.w    0
 
 dac_freq:
