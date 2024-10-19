@@ -217,7 +217,7 @@ static void R_PrepPSprite(pspdef_t *psp)
       return;
 
    xscale = weaponXScale;
-   center = centerXFrac - 160 * weaponXScale;
+   center = centerXFrac - (160 * (lowdetail ? 2 : 1) - viewportWidth) * weaponXScale;
 
    tx = psp->sx + center;
    topoffset = (((fixed_t)BIGSHORT(patch->topoffset) - weaponYpos) << FRACBITS) - psp->sy;

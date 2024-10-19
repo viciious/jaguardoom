@@ -14,6 +14,7 @@ fixed_t stretch;
 fixed_t stretchX;
 VINT weaponYpos;
 fixed_t weaponXScale;
+boolean lowdetail = true;
 
 VINT detailmode;
 
@@ -260,6 +261,8 @@ void R_SetViewportSize(int num)
 
 	width = viewports[num][splitscreen][0];
 	height = viewports[num][splitscreen][1];
+	if (lowdetail)
+		width /= 2;
 
 	viewportNum = num;
 	viewportWidth = width;
@@ -281,7 +284,7 @@ void R_SetViewportSize(int num)
 		//stretch = (fixed_t)((160.0f / width) * ((float)height / 180.0f) * 2.2f * FRACUNIT);
 		stretch = ((FRACUNIT * 16 * height) / 180 * 22) / width;
 	}
-	weaponXScale = FRACUNIT;
+	weaponXScale = FRACUNIT / (lowdetail ? 2 : 1);
 	stretchX = stretch * centerX;
 
 	weaponYpos = 180;
