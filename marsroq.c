@@ -482,14 +482,29 @@ static void *roq_dma_dest(roq_file *fp, void *dest, int length, int dmaarg)
         break;
     }
 
+    fp->in_dma = 1;
     return dma_dest;
 }
 
-static int roq_commit(roq_file* fp)
+static int roq_request(roq_file* fp)
 {
     int audio = 0;
 
     // wait for ongoing transfer to finish
+    if (fp->in_dma) {
+        if (fp->snddma_dest != NULL)
+        {
+            audio = 1;
+        }
+        else if (fp->dma_dest != NULL)
+        {
+            audio = 0;
+        }
+        return audio;
+    }
+
+    while ((MARS_SYS_COMM0 & 0xFF00) != 0x2E00);
+
     while (MARS_SYS_COMM0 & 1);
 
     // EOF is reached and there's no data left
@@ -503,25 +518,27 @@ static int roq_commit(roq_file* fp)
         return 0;
     }
 
+    // request a new chunk
+    MARS_SYS_COMM0 |= 1;
+
+    return 0;
+}
+
+static void roq_commit(roq_file* fp)
+{
     if (fp->snddma_dest != NULL)
     {
-        audio = 1;
         ringbuf_wcommit(schunks, fp->snddma_dest - fp->snddma_base);
         fp->snddma_base = NULL;
         fp->snddma_dest = NULL;
     }
     else if (fp->dma_dest != NULL)
     {
-        audio = 0;
         ringbuf_wcommit(vchunks, fp->dma_dest - fp->dma_base);
         fp->dma_base = NULL;
         fp->dma_dest = NULL;
     }
-
-    // request a new chunk
-    MARS_SYS_COMM0 |= 1;
-
-    return audio;
+    fp->in_dma = 0;
 }
 
 static void roq_get_chunk(roq_file* fp)
@@ -542,7 +559,7 @@ get_header:
             return;
         }
 
-        while (roq_commit(fp) == 1) {
+        while (roq_request(fp) == 1) {
             // skip audio chunks
         }
         goto get_header;
@@ -601,7 +618,7 @@ static int roq_buffer(roq_file* fp)
     // increasing the amount of buffering limit seems be doing more harm than good
     // the 1/4 of max size is the emprical value that works best in practice
     if (ringbuf_nfree(schunks) > ringbuf_size(schunks)/4 && ringbuf_nfree(vchunks) > RoQ_VID_BUF_SIZE/4) {
-        roq_commit(fp);
+        roq_request(fp);
         return 1;
     }
     return 0;
@@ -625,6 +642,7 @@ static int roq_open(const char *file, roq_file *fp, char *buf)
     Mars_ClearCache();
 
     Mars_SetPriDreqDMACallback((void *(*)(void *, void *, int , int))roq_dma_dest, fp);
+    Mars_SetPriDreqDMADoneCallback((void (*)(void *))roq_commit);
 
     MARS_SYS_COMM8 = 0;
     MARS_SYS_COMM0 = 0x2E01; // request transfer of the first RoQ page
