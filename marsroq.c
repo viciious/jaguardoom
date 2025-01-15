@@ -32,7 +32,7 @@
 #include "mars_newrb.h"
 #include "roq.h"
 
-#define RoQ_VID_BUF_SIZE        0xE000
+#define RoQ_VID_BUF_SIZE        0x7800
 #define RoQ_SND_BUF_SIZE        0x5400
 
 #define RoQ_SAMPLE_MIN          2

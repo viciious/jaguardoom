@@ -3149,26 +3149,44 @@ snd_ctrl:
 | exit:  d0 = 0 (okay) or -1 (error) or -2 (DMA error)
         .global dma_to_32x
 dma_to_32x:
-        move.w  #0x2700,sr              /* disable ints */
+        move.w  #0xFF10,d2
 
+000:
         move.w  #0x0001,0xA15102        /* assert CMD INT to primary SH2 */
 0:
         move.w  0xA15120,d1             /* wait on handshake in COMM0 */
         cmpi.w  #0xA55A,d1
         bne.b   0b
-        move.w  #0xFF10,0xA15120
+        move.w  d2,0xA15120
 
 00:
-        cmpi.w  #0xFF11,0xA15120        /* wait for handshake */
-        bne.b   00b
-
+        move.w  0xA15120,d1
+        cmp.w   d1,d2                   /* wait for handshake */
+        beq.b   00b
         lea     0xA15000,a1
 
-        move.l  4(sp),d0                /* optional destination address */
-        move.l  d0,0x010C(a1)           /* SH DREQ destination address */
+        move.l  4(sp),d0                /* optional destination address, LW */
+        move.w  d0,0xA15122             /* COMM2 */      
+        addq    #1,d1
+        move.w  d1,0xA15120             /* ack in COMM0 */
+0000:
+        cmp.w   0xA15120,d1
+        beq.b   0000b
+        move.w  0xA15120,d1
+
+        swap.w  d0                      /* optional destination address, HW */
+        move.w  d0,0x0122(a1)           /* COMM2 */      
+        addq    #1,d1
+        move.w  d1,0xA15120             /* ack in COMM0 */
+00000:
+        cmp.w   0xA15120,d1
+        beq.b   00000b
+        move.w  0xA15120,d1
+
         move.l  16(sp),d0               /* optional argument */
         move.w  d0,0x0122(a1)           /* COMM2 */
-        move.w  #0xFF12,0xA15120
+        addq    #1,d1
+        move.w  d1,0xA15120             /* ack in COMM0 */
 
         move.b  #0x00,0x0107(a1)        /* clear 68S bit - stops SH DREQ */
 
@@ -3228,30 +3246,29 @@ dma_to_32x:
 
         bra.b   5f
 
+        lea     0xA15107,a2
+
 2:
-        move.w  (a0)+,(a1)              /* FIFO = next word */
+        move.b  (a2),d1
+        bmi.b   2b
         move.w  (a0)+,(a1)
+
+22:
+        move.b  (a2),d1
+        bmi.b   22b
         move.w  (a0)+,(a1)
+
+222:
+        move.b  (a2),d1
+        bmi.b   222b
         move.w  (a0)+,(a1)
-3:
-        btst    #7,0xA15107             /* check FIFO full flag */
-        bne.b   3b
+
+2222:
+        move.b  (a2),d1
+        bmi.b   2222b
+        move.w  (a0)+,(a1)
+
         dbra    d0,2b
-
-        lea     (-8,a0),a0
-        move.w  (a0)+,(a1)
-        move.w  (a0)+,(a1)
-        move.w  (a0)+,(a1)
-        move.w  (a0)+,(a1)
-4:        
-        btst    #7,0xA15107             /* check FIFO full flag */
-        bne.b   4b
-
-        lea     (-8,a0),a0
-        move.w  (a0)+,(a1)
-        move.w  (a0)+,(a1)
-        move.w  (a0)+,(a1)
-        move.w  (a0)+,(a1)
 
 5:
         move.w  #0x0001,0xA15102        /* assert CMD INT to primary SH2 */
@@ -3262,13 +3279,14 @@ dma_to_32x:
 
         move.w  #0xFF20,0xA15120
 
-44:
-        btst    #2,0xA15107
-        bne.b   444f                      /* DMA not done? */
-        moveq   #0,d0
-        bra.w   4444f
-444:
-        moveq   #-2,d0
+555:
+        move.w  0xA15120,d1             /* wait on handshake in COMM0 */
+        cmpi.w  #0xFF20,d1
+        beq.b   555b
+
+        move.l  d1,d0
+        addi.w  #1,d1
+        move.w  d1,0xA15120             /* send an ack to the 32X */
 
 4444:
         move.w  0xA15120,d1             /* wait on handshake in COMM0 */
@@ -3280,7 +3298,10 @@ dma_to_32x:
         cmpi.w  #0x5AA5,0xA15120
         beq.b   6b
 
-        move.w  #0x2000,sr              /* enable ints */
+        move.w  #0xFF30,d2
+        btst    #0,d0                   /* check the timeout flag */
+        bne.w   000b                    /* retry */
+
         rts
 
 
