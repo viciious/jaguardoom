@@ -620,7 +620,7 @@ static int roq_buffer(roq_file* fp)
 {
     // increasing the amount of buffering limit seems be doing more harm than good
     // the 1/4 of max size is the emprical value that works best in practice
-    if (ringbuf_nfree(schunks) > ringbuf_size(schunks)/4 && ringbuf_nfree(vchunks) > RoQ_VID_BUF_SIZE/4) {
+    if (ringbuf_nfree(schunks) < ringbuf_size(schunks)/4 && ringbuf_nfree(vchunks) < RoQ_VID_BUF_SIZE/4) {
         roq_request(fp);
         return 1;
     }
@@ -766,6 +766,13 @@ int Mars_PlayRoQ(const char *fn, void *mem, size_t size, int allowpause, void (*
     extratics = 0;
     framecount = 0;
 
+    if (needsound && schunks->writepos != 0)
+    {
+        // init sound DMA on the secondary CPU
+        needsound = 0;
+        secsnd(1);
+    }
+
     while(1)
     {
         int ret;
@@ -806,13 +813,6 @@ int Mars_PlayRoQ(const char *fn, void *mem, size_t size, int allowpause, void (*
                 roq_close(ri, secsnd);
                 roq_init_video(ri);
                 return 1;
-            }
-
-            if (needsound && schunks->writepos != 0)
-            {
-                // init sound DMA on the secondary CPU
-                needsound = 0;
-                secsnd(1);
             }
 
             Mars_FlipFrameBuffers(0);
