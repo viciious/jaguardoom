@@ -81,7 +81,7 @@ void *ringbuf_walloc(marsrbuf_t *buf, int size)
     int rem;
     void *data;
 
-    if (size < 0 || size > buf->size || size + buf->writepos > 0xffff)
+    if (size < 0 || size > buf->size)
         return NULL;
 
     ringbuf_lock(buf);
@@ -97,8 +97,8 @@ void *ringbuf_walloc(marsrbuf_t *buf, int size)
     }
     else
     {
-        for (w = buf->writepos; w >= buf->size; w -= buf->size);
-        for (r = buf->readpos ; r >= buf->size; r -= buf->size);
+        for (w = buf->writepos; w > buf->size; w -= buf->size);
+        for (r = buf->readpos ; r > buf->size; r -= buf->size);
     }
 
     if (buf->writepos >= buf->size)
@@ -158,7 +158,7 @@ void *ringbuf_ralloc(marsrbuf_t *buf, int size)
     int rem;
     void *data;
 
-    if (size < 0 || size > buf->size || size + buf->readpos > 0xffff)
+    if (size < 0 || size > buf->size)
         return NULL;
 
     ringbuf_lock(buf);
@@ -251,13 +251,21 @@ int ringbuf_nfree(marsrbuf_t *buf)
 
     ringbuf_fixup(buf);
 
-    for (w = buf->writepos; w >= buf->size; w -= buf->size);
-    for (r = buf->readpos ; r >= buf->size; r -= buf->size);
-
-    if (buf->writepos >= buf->size)
-        rem = r - w;
+    if (buf->writepos == buf->readpos && !buf->ropen && !buf->wopen)
+    {
+        buf->readpos = buf->writepos = buf->maxreadpos = 0;
+        rem = buf->size;
+    }
     else
-        rem = buf->size - buf->writepos;
+    {
+        for (w = buf->writepos; w > buf->size; w -= buf->size);
+        for (r = buf->readpos ; r > buf->size; r -= buf->size);
+
+        if (buf->writepos >= buf->size)
+            rem = r - w;
+        else
+            rem = buf->size - buf->writepos;
+    }
 
     ringbuf_unlock(buf);
 
