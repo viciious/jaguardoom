@@ -32,8 +32,8 @@
 #include "mars_newrb.h"
 #include "roq.h"
 
-#define RoQ_VID_BUF_SIZE        0x7800
-#define RoQ_SND_BUF_SIZE        0x5400
+#define RoQ_VID_BUF_SIZE        0xE000
+#define RoQ_SND_BUF_SIZE        0x5000
 
 #define RoQ_SAMPLE_MIN          2
 #define RoQ_SAMPLE_MAX          1032
@@ -747,9 +747,6 @@ int Mars_PlayRoQ(const char *fn, void *mem, size_t size, int allowpause, void (*
         shift = ri->canvascopy - oldp;
 
         snd_buf_size += shift * sizeof(short);
-        if (snd_buf_size > 0x7800) {
-            snd_buf_size = 0x7800;
-        }
     }
 
     ringbuf_init(schunks, snddata, snd_buf_size, 1);
