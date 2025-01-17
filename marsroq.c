@@ -480,27 +480,12 @@ static void *roq_dma_dest(roq_file *fp, void *dest, int length, int dmaarg)
         break;
     }
 
-    fp->in_dma = 1;
     return dma_dest;
 }
 
-static int roq_request(roq_file* fp)
+static void roq_request(roq_file* fp)
 {
-    int audio = 0;
-
     // wait for ongoing transfer to finish
-    if (fp->in_dma) {
-        if (fp->snddma_dest != NULL)
-        {
-            audio = 1;
-        }
-        else if (fp->dma_dest != NULL)
-        {
-            audio = 0;
-        }
-        return audio;
-    }
-
     while ((MARS_SYS_COMM0 & 0xFF00) != 0x2E00);
 
     while (MARS_SYS_COMM0 & 1);
@@ -519,13 +504,11 @@ static int roq_request(roq_file* fp)
 
     if (fp->eof)
     {
-        return 0;
+        return;
     }
 
     // request a new chunk
     MARS_SYS_COMM0 |= 1;
-
-    return 0;
 }
 
 static void roq_commit(roq_file* fp)
@@ -544,7 +527,6 @@ static void roq_commit(roq_file* fp)
         fp->dma_base = NULL;
         fp->dma_dest = NULL;
     }
-    fp->in_dma = 0;
 }
 
 static void roq_get_chunk(roq_file* fp)
@@ -564,10 +546,7 @@ get_header:
             fp->data = NULL;
             return;
         }
-
-        while (roq_request(fp) == 1) {
-            // skip audio chunks
-        }
+        roq_request(fp);
         goto get_header;
     }
 
