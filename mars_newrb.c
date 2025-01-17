@@ -222,6 +222,8 @@ void ringbuf_wait(marsrbuf_t *buf)
             break;
 
         ringbuf_unlock(buf);
+
+        ringbuf_delay();
     }
 
     ringbuf_unlock(buf);
