@@ -68,7 +68,7 @@ static void ringbuf_unlock(marsrbuf_t *buf)
 
 static void ringbuf_fixup(marsrbuf_t *buf)
 {
-    while (buf->readpos >= buf->size && buf->writepos >= buf->size)
+    while (buf->readpos >= buf->size && buf->writepos >= buf->size && !buf->ropen)
     {
         buf->readpos -= buf->size;
         buf->writepos -= buf->size;
@@ -88,12 +88,12 @@ void *ringbuf_walloc(marsrbuf_t *buf, int size)
 
     Mars_ClearCacheLines(buf, 2);
 
-    ringbuf_fixup(buf);
-
-    if (buf->writepos == buf->readpos && !buf->ropen && !buf->wopen)
+    if (buf->writepos == buf->readpos && !buf->ropen)
     {
         w = r = 0;
-        buf->readpos = buf->writepos = buf->maxreadpos = 0;
+        buf->writepos = 0;
+        buf->maxreadpos = 0;
+        buf->readpos = 0;
     }
     else
     {
@@ -155,7 +155,7 @@ void ringbuf_wcommit(marsrbuf_t *buf, int size)
 
 void *ringbuf_ralloc(marsrbuf_t *buf, int size)
 {
-    int rem;
+    int rem, r;
     void *data;
 
     if (size < 0 || size > buf->size)
@@ -165,16 +165,15 @@ void *ringbuf_ralloc(marsrbuf_t *buf, int size)
 
     Mars_ClearCacheLines(buf, 2);
 
-    ringbuf_fixup(buf);
-
     if (buf->maxreadpos)
     {
-        rem = buf->maxreadpos - buf->readpos;
+        rem = (int)buf->maxreadpos - buf->readpos;
     }
     else
     {
-        rem = buf->writepos - buf->readpos;
+        rem = (int)buf->writepos - buf->readpos;
     }
+    for (r = buf->readpos ; r > buf->size; r -= buf->size);
 
     if (rem < size) {
         ringbuf_unlock(buf);
@@ -184,7 +183,7 @@ void *ringbuf_ralloc(marsrbuf_t *buf, int size)
     }
 
     buf->ropen = 1;
-    data = buf->data + buf->readpos;
+    data = buf->data + r;
 
     ringbuf_unlock(buf);
 
@@ -207,6 +206,8 @@ void ringbuf_rcommit(marsrbuf_t *buf, int size)
     }
 
     buf->ropen = 0;
+
+    ringbuf_fixup(buf);
 
     ringbuf_unlock(buf);
 }
@@ -251,23 +252,13 @@ int ringbuf_nfree(marsrbuf_t *buf)
 
     Mars_ClearCacheLines(buf, 2);
 
-    ringbuf_fixup(buf);
+    for (w = buf->writepos; w > buf->size; w -= buf->size);
+    for (r = buf->readpos ; r > buf->size; r -= buf->size);
 
-    if (buf->writepos == buf->readpos && !buf->ropen && !buf->wopen)
-    {
-        buf->readpos = buf->writepos = buf->maxreadpos = 0;
-        rem = buf->size;
-    }
+    if (buf->writepos >= buf->size)
+        rem = r - w;
     else
-    {
-        for (w = buf->writepos; w > buf->size; w -= buf->size);
-        for (r = buf->readpos ; r > buf->size; r -= buf->size);
-
-        if (buf->writepos >= buf->size)
-            rem = r - w;
-        else
-            rem = buf->size - buf->writepos;
-    }
+        rem = buf->size - buf->writepos;
 
     ringbuf_unlock(buf);
 
