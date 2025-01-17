@@ -646,8 +646,6 @@ static void roq_close(roq_info *ri, void (*secsnd)(int init))
 
     Mars_SetPriDreqDMACallback(NULL, NULL);
 
-    ringbuf_wait(schunks);
-
     secsnd(0);
 
     MARS_SYS_COMM0 = 0;

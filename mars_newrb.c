@@ -66,15 +66,6 @@ static void ringbuf_unlock(marsrbuf_t *buf)
     buf->lock = 0;
 }
 
-static void ringbuf_fixup(marsrbuf_t *buf)
-{
-    while (buf->readpos >= buf->size && buf->writepos >= buf->size && !buf->ropen)
-    {
-        buf->readpos -= buf->size;
-        buf->writepos -= buf->size;
-    }
-}
-
 void *ringbuf_walloc(marsrbuf_t *buf, int size)
 {
     int w, r;
@@ -86,9 +77,18 @@ void *ringbuf_walloc(marsrbuf_t *buf, int size)
 
     ringbuf_lock(buf);
 
+    buf->wopen = 1;
+
+    while (buf->readpos >= buf->size && buf->writepos >= buf->size)
+    {
+        buf->readpos -= buf->size;
+        buf->writepos -= buf->size;
+        buf->maxreadpos = 0;
+    }
+
     Mars_ClearCacheLines(buf, 2);
 
-    if (buf->writepos == buf->readpos && !buf->ropen)
+    if (buf->writepos == buf->readpos)
     {
         w = r = 0;
         buf->writepos = 0;
@@ -117,6 +117,7 @@ void *ringbuf_walloc(marsrbuf_t *buf, int size)
     }
 
     if (rem < size) {
+        buf->wopen = 0;
         ringbuf_unlock(buf);
         if (!buf->nolock)
             ringbuf_delay();
@@ -125,7 +126,7 @@ void *ringbuf_walloc(marsrbuf_t *buf, int size)
 
     data = buf->data + w;
 
-    buf->wopen = 1;
+    buf->wopen = 0;
 
     ringbuf_unlock(buf);
 
@@ -139,14 +140,14 @@ void ringbuf_wcommit(marsrbuf_t *buf, int size)
 
     ringbuf_lock(buf);
 
+    buf->wopen = 1;
+
     Mars_ClearCacheLines(buf, 2);
 
     if (size > buf->size)
         size = buf->size;
 
     buf->writepos += size;
-
-    ringbuf_fixup(buf);
 
     buf->wopen = 0;
 
@@ -163,9 +164,11 @@ void *ringbuf_ralloc(marsrbuf_t *buf, int size)
 
     ringbuf_lock(buf);
 
+    buf->ropen = 1;
+
     Mars_ClearCacheLines(buf, 2);
 
-    if (buf->maxreadpos)
+    if (buf->maxreadpos > buf->readpos)
     {
         rem = (int)buf->maxreadpos - buf->readpos;
     }
@@ -182,8 +185,9 @@ void *ringbuf_ralloc(marsrbuf_t *buf, int size)
         return NULL;
     }
 
-    buf->ropen = 1;
     data = buf->data + r;
+
+    buf->ropen = 0;
 
     ringbuf_unlock(buf);
 
@@ -197,17 +201,16 @@ void ringbuf_rcommit(marsrbuf_t *buf, int size)
 
     ringbuf_lock(buf);
 
+    buf->ropen = 1;
+
     Mars_ClearCacheLines(buf, 2);
 
     buf->readpos += size;
     if (buf->maxreadpos && buf->readpos >= buf->maxreadpos) {
         buf->readpos = buf->size;
-        buf->maxreadpos = 0;
     }
 
     buf->ropen = 0;
-
-    ringbuf_fixup(buf);
 
     ringbuf_unlock(buf);
 }
