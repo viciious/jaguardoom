@@ -281,6 +281,15 @@ static void roq_snddma1_load_samples(void)
     }
 }
 
+static void roq_snddma1_pwmctrl(void)
+{
+    if (MARS_VDP_DISPMODE & MARS_NTSC_FORMAT)
+        MARS_PWM_CYCLE = (((23011361 << 1) / (RoQ_SAMPLE_RATE) + 1) >> 1) + 1; // for NTSC clock
+    else
+        MARS_PWM_CYCLE = (((22801467 << 1) / (RoQ_SAMPLE_RATE) + 1) >> 1) + 1; // for PAL clock
+    MARS_PWM_CTRL = 0x0185; // TM = 1, RTP, RMD = right, LMD = left    
+}
+
 static void roq_snddma1_startdma(void)
 {
     SH2_DMA_SAR1 = (uintptr_t)snd_samples[snd_flip];
@@ -334,6 +343,29 @@ void Mars_Sec_RoQ_InitSound(int init)
 
     Mars_ClearCache();
 
+    if (init == 2)
+    {
+        // init the sound hardware
+        MARS_PWM_MONO = 1;
+        MARS_PWM_MONO = 1;
+        MARS_PWM_MONO = 1;
+        roq_snddma1_pwmctrl();
+
+        sample = RoQ_SAMPLE_MIN;
+
+        // ramp up to RoQ_SAMPLE_CENTER to avoid click in audio (real 32X)
+        while (sample < RoQ_SAMPLE_CENTER)
+        {
+            for (ix = 0; ix < (RoQ_SAMPLE_RATE * 2) / (RoQ_SAMPLE_CENTER - RoQ_SAMPLE_MIN); ix++)
+            {
+                while (MARS_PWM_MONO & 0x8000); // wait while full
+                MARS_PWM_MONO = sample;
+            }
+            sample++;
+        }
+        return;
+    }
+
     snd_lr[0] = snd_lr[1] = 0;
 
     for (i = 0; i < 2; i++)
@@ -343,39 +375,19 @@ void Mars_Sec_RoQ_InitSound(int init)
 
     if (!init)
     {
+        SH2_DMA_DMAOR = 0; // disable DMA
         snd_channels = 0;
         return;
     }
 
     // init DMA
-    SH2_DMA_DAR1 = (intptr_t)&MARS_PWM_MONO; // storing a word here will the MONO channel
+    SH2_DMA_DAR1 = (intptr_t)&MARS_PWM_MONO; // storing a word here will use the MONO channel
     SH2_DMA_TCR1 = 0;
     SH2_DMA_CHCR1 = 0;
     SH2_DMA_DRCR1 = 0;
     SH2_DMA_DMAOR = 1; // enable DMA
 
-    // init the sound hardware
-    MARS_PWM_MONO = 1;
-    MARS_PWM_MONO = 1;
-    MARS_PWM_MONO = 1;
-    if (MARS_VDP_DISPMODE & MARS_NTSC_FORMAT)
-        MARS_PWM_CYCLE = (((23011361 << 1) / (RoQ_SAMPLE_RATE) + 1) >> 1) + 1; // for NTSC clock
-    else
-        MARS_PWM_CYCLE = (((22801467 << 1) / (RoQ_SAMPLE_RATE) + 1) >> 1) + 1; // for PAL clock
-    MARS_PWM_CTRL = 0x0185; // TM = 1, RTP, RMD = right, LMD = left
-
-    sample = RoQ_SAMPLE_MIN;
-
-    // ramp up to RoQ_SAMPLE_CENTER to avoid click in audio (real 32X)
-    while (sample < RoQ_SAMPLE_CENTER)
-    {
-        for (ix = 0; ix < (RoQ_SAMPLE_RATE * 2) / (RoQ_SAMPLE_CENTER - RoQ_SAMPLE_MIN); ix++)
-        {
-            while (MARS_PWM_MONO & 0x8000); // wait while full
-            MARS_PWM_MONO = sample;
-        }
-        sample++;
-    }
+    roq_snddma1_pwmctrl();
 
     Mars_SetSecDMA1Callback(&roq_snddma1_handler);
 
@@ -492,20 +504,14 @@ static void roq_request(roq_file* fp)
 
     // a read error has occured
     if ((MARS_SYS_COMM0 & (16|32)) != 0)
-    {
         fp->eof = 1;
-    }
 
     // EOF is reached and there's no data left
     if ((MARS_SYS_COMM0 & (4|8)) == (4|8))
-    {
         fp->eof = 1;
-    }
 
     if (fp->eof)
-    {
         return;
-    }
 
     // request a new chunk
     MARS_SYS_COMM0 |= 1;
@@ -660,7 +666,6 @@ int Mars_PlayRoQ(const char *fn, void *mem, size_t size, int allowpause, void (*
     int framecount = 0;
     int snd_buf_size = RoQ_SND_BUF_SIZE;
     int extratics = 0;
-    char needsound = 1;
     unsigned starttics;
 
     if (!allowpause && (Mars_ReadController(0) & SEGA_CTRL_START)) {
@@ -701,6 +706,8 @@ int Mars_PlayRoQ(const char *fn, void *mem, size_t size, int allowpause, void (*
 
     ringbuf_init(vchunks, viddata, RoQ_VID_BUF_SIZE, 0);
 
+    secsnd(2);
+
     if (roq_open(fn, &fp, viddata) < 0) {
         return -1;
     }
@@ -729,6 +736,8 @@ int Mars_PlayRoQ(const char *fn, void *mem, size_t size, int allowpause, void (*
     }
 
     ringbuf_init(schunks, snddata, snd_buf_size, 1);
+
+    secsnd(1);
 
     // buffer some initial data, but not for too long
     starttics = Mars_GetTicCount();
@@ -785,13 +794,6 @@ int Mars_PlayRoQ(const char *fn, void *mem, size_t size, int allowpause, void (*
                 roq_close(ri, secsnd);
                 roq_init_video(ri);
                 return 1;
-            }
-
-            if (needsound && schunks->writepos != 0)
-            {
-                // init sound DMA on the secondary CPU
-                needsound = 0;
-                secsnd(1);
             }
 
             Mars_FlipFrameBuffers(0);
