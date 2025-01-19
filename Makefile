@@ -1,4 +1,4 @@
-ifdef $(GENDEV)
+ifdef GENDEV
 ROOTDIR = $(GENDEV)
 else
 ROOTDIR = /opt/toolchains/sega
@@ -14,17 +14,26 @@ INCPATH = -I. -I$(ROOTDIR)/sh-elf/include -I$(ROOTDIR)/sh-elf/sh-elf/include -I.
 CCFLAGS = -c -std=c11 -m2 -mb
 CCFLAGS += -Wall -Wextra -pedantic -Wno-unused-parameter -Wimplicit-fallthrough=0 -Wno-missing-field-initializers -Wnonnull
 CCFLAGS += -D__32X__ -DMARS
-LDFLAGS = -T mars-ssf.ld -Wl,-Map=output.map -nostdlib -Wl,--gc-sections --specs=nosys.specs
+CCFLAGS += -DDISABLE_DMA_SOUND
+LDFLAGS = -T mars-ssf.ld -Wl,-Map=output.map -nostdlib -Wl,--gc-sections,--sort-section=alignment --specs=nosys.specs
 ASFLAGS = --big
+ifdef ENABLE_FIRE_ANIMATION
+CCFLAGS += -DENABLE_FIRE_ANIMATION
+endif
+ifdef ENABLE_SSF_MAPPER
+HWCCFLAGS += -DENABLE_SSF_MAPPER
+CCFLAGS += -DENABLE_SSF_MAPPER
+ASFLAGS += --defsym ENABLE_SSF_MAPPER=1
+endif
 
 MARSHWCFLAGS := $(CCFLAGS)
 MARSHWCFLAGS += -O1 -fno-lto
 
 release: CCFLAGS += -Os -fomit-frame-pointer -ffast-math -funroll-loops -fno-align-loops -fno-align-jumps -fno-align-labels
-release: CCFLAGS += -ffunction-sections -fdata-sections -flto
-release: LDFLAGS += -flto=3
+release: CCFLAGS += -fno-common -ffunction-sections -fdata-sections -flto=auto
+release: LDFLAGS += -Os -flto=auto
 
-debug: CCFLAGS += -g -Os -ggdb -fomit-frame-pointer
+debug: CCFLAGS += -Os -g -ggdb -fomit-frame-pointer
 debug: MARSHWCFLAGS += -ggdb -fomit-frame-pointer
 
 PREFIX = $(ROOTDIR)/sh-elf/bin/sh-elf-
@@ -35,7 +44,7 @@ OBJC = $(PREFIX)objcopy
 DD = dd
 RM = rm -f
 
-TARGET = D32XR
+TARGET ?= D32XR
 LIBS = $(LIBPATH) -lc -lgcc -lgcc-Os-4-200 -lnosys
 OBJS = \
 	crt0.o \
@@ -99,10 +108,15 @@ OBJS = \
 	d_mapinfo.o \
 	sh2_fixed.o \
 	sh2_draw.o \
+	sh2_drawlow.o \
 	sh2_mixer.o \
 	r_cache.o \
 	m_fire.o \
-	lzss.o
+	lzss.o \
+	gs_main.o \
+	roq_read.o \
+	marsroq.o \
+	mars_newrb.o
 
 release: $(TARGET).32x
 
@@ -115,7 +129,7 @@ m68k.bin:
 
 $(TARGET).32x: $(TARGET).elf
 	$(OBJC) -O binary $< temp2.bin
-	$(DD) if=temp2.bin of=temp.bin bs=180K conv=sync
+	$(DD) if=temp2.bin of=temp.bin bs=208K conv=sync
 	rm -f temp3.bin
 	cat temp.bin $(WAD) >>temp3.bin
 	$(DD) if=temp3.bin of=$@ bs=512K conv=sync
@@ -140,3 +154,11 @@ marshw.o: marshw.c
 clean:
 	make clean -C src-md
 	$(RM) *.o mr8k.bin $(TARGET).32x $(TARGET).elf output.map temp.bin temp2.bin
+
+optwad:
+	mkdir -p iso
+	find iso -type f -name "*.WAD" -exec ./wadptr -nomerge -nosquash -nostack -c {} \;
+
+iso: $(TARGET).32x
+	mkdir -p iso
+	genisoimage -sysid "SEGA SEGACD" -volid "DOOM CD32X FUSION" -full-iso9660-filenames -l -o $(TARGET).iso iso

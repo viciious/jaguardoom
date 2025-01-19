@@ -59,13 +59,13 @@ int	EV_Teleport( line_t *line,mobj_t *thing )
 	if (side == 1)		/* don't teleport if hit back of line, */
 		return 0;		/* so you can get out of teleporter */
 	
-	tag = line->tag;
+	tag = P_GetLineTag(line);
 	for (i = 0; i < numsectors; i++)
 		if (sectors[ i ].tag == tag )
 		{
 			for (m=mobjhead.next ; m != (void *)&mobjhead ; m=m->next)
 			{
-				ptrymove_t tm;
+				pmovework_t tm;
 
 				if (m->type != MT_TELEPORTMAN )
 					continue;		/* not a teleportman */
@@ -92,7 +92,7 @@ int	EV_Teleport( line_t *line,mobj_t *thing )
 					, thing->z, MT_TFOG);
 				S_StartSound (fog, sfx_telept);
 				if (thing->player)
-					thing->reactiontime = 18;	/* don't move for a bit */
+					thing->reactiontime = 18 / 2;	/* don't move for a bit */
 				thing->angle = m->angle;
 				thing->momx = thing->momy = thing->momz = 0;
 				return 1;
