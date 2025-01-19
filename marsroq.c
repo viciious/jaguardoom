@@ -32,7 +32,7 @@
 #include "mars_newrb.h"
 #include "roq.h"
 
-#define RoQ_VID_BUF_SIZE        0xE000
+#define RoQ_VID_BUF_SIZE        0x7000
 #define RoQ_SND_BUF_SIZE        0x5000
 
 #define RoQ_SAMPLE_MIN          2
@@ -54,7 +54,8 @@ static int8_t snd_channels = 0;
 static int16_t snd_samples_rem = 0;
 static int16_t snd_lr[2];
 
-static marsrbuf_t *vchunks;
+static int8_t vid;
+static marsrbuf_t *vchunks[2];
 
 /*
 ===============================================================================
@@ -478,7 +479,7 @@ static void *roq_dma_dest(roq_file *fp, void *dest, int length, int dmaarg)
         break;
     default:
         if (!fp->dma_base) {
-            fp->dma_base = ringbuf_walloc(vchunks, (chunk_size + 8 + 1) & ~1);
+            fp->dma_base = ringbuf_walloc(vchunks[vid], (chunk_size + 8 + 1) & ~1);
             if (!fp->dma_base) {
                 // FIXME
                 fp->eof = 1;
@@ -495,12 +496,13 @@ static void *roq_dma_dest(roq_file *fp, void *dest, int length, int dmaarg)
     return dma_dest;
 }
 
-static void roq_request(roq_file* fp)
+static int roq_request(roq_file* fp)
 {
     // wait for ongoing transfer to finish
     while ((MARS_SYS_COMM0 & 0xFF00) != 0x2E00);
 
-    while (MARS_SYS_COMM0 & 1);
+    if (MARS_SYS_COMM0 & 1)
+        return 1;
 
     // a read error has occured
     if ((MARS_SYS_COMM0 & (16|32)) != 0)
@@ -510,11 +512,7 @@ static void roq_request(roq_file* fp)
     if ((MARS_SYS_COMM0 & (4|8)) == (4|8))
         fp->eof = 1;
 
-    if (fp->eof)
-        return;
-
-    // request a new chunk
-    MARS_SYS_COMM0 |= 1;
+    return 0;
 }
 
 static void roq_commit(roq_file* fp)
@@ -529,7 +527,7 @@ static void roq_commit(roq_file* fp)
     else if (fp->dma_dest != NULL)
     {
         if (fp->dma_base != fp->backupdma_dest)
-            ringbuf_wcommit(vchunks, fp->dma_dest - fp->dma_base);
+            ringbuf_wcommit(vchunks[vid], fp->dma_dest - fp->dma_base);
         fp->dma_base = NULL;
         fp->dma_dest = NULL;
     }
@@ -539,20 +537,25 @@ static void roq_get_chunk(roq_file* fp)
 {
     uint8_t *header;
     uint8_t *chunk;
+    unsigned chunk_id;
     unsigned chunk_size = 0;
     unsigned pad;
 
     // the initial header is strictly 8 bytes
     // other chunks may have a padding byte at the start
-get_header:
-    header = ringbuf_ralloc(vchunks, fp->bof ? 8 : 9);
 
+get_header:
+    while (roq_request(fp) == 1) {
+        ;
+    }
+
+    header = ringbuf_ralloc(vchunks[vid], fp->bof ? 8 : 9);
     if (!header) {
         if (fp->eof) {
             fp->data = NULL;
             return;
         }
-        roq_request(fp);
+        MARS_SYS_COMM0 |= 1;
         goto get_header;
     }
 
@@ -563,6 +566,7 @@ get_header:
         header++;
     }
 
+    chunk_id = (header[0]) | (header[1] << 8);
     chunk_size = (header[2]) | (header[3] << 8) | (header[4] << 16) | (header[5] << 24);
 
     if (fp->bof) {
@@ -571,7 +575,7 @@ get_header:
         chunk_size = 0;
     }
     else {
-        chunk = ringbuf_ralloc(vchunks, (chunk_size + 8 + 1) & ~1);
+        chunk = ringbuf_ralloc(vchunks[vid], (chunk_size + 8 + 1) & ~1);
         chunk += pad;
     }
 
@@ -584,6 +588,18 @@ get_header:
     fp->page_base = chunk;
     fp->data = chunk;
     fp->page_end = fp->data + chunk_size + 8;
+    fp->page_vchunks = vchunks[vid];
+
+    if (chunk_id == RoQ_QUAD_VQ) {
+        vid = (vid + 1) & 1;
+        ringbuf_reset(vchunks[vid]);
+    }
+
+    if (fp->eof)
+        return;
+
+    // request a new chunk
+    MARS_SYS_COMM0 |= 1;
 }
 
 static void roq_return_chunk(roq_file* fp)
@@ -598,14 +614,14 @@ static void roq_return_chunk(roq_file* fp)
     size = (size + 1) & ~1;
 
     fp->bof = 0;
-    ringbuf_rcommit(vchunks, size);
+    ringbuf_rcommit(fp->page_vchunks, size);
 }
 
 static int roq_buffer(roq_file* fp)
 {
     // increasing the amount of buffering limit seems be doing more harm than good
     // the 1/4 of max size is the emprical value that works best in practice
-    if (ringbuf_nfree(schunks) > ringbuf_size(schunks)/4 && ringbuf_nfree(vchunks) > RoQ_VID_BUF_SIZE/4) {
+    if (ringbuf_nfree(schunks) > ringbuf_size(schunks)/4 && ringbuf_nfree(vchunks[vid]) > RoQ_VID_BUF_SIZE/2) {
         roq_request(fp);
         return 1;
     }
@@ -626,6 +642,7 @@ static int roq_open(const char *file, roq_file *fp, char *buf)
     fp->page_base = (unsigned char *)buf;
     fp->data = fp->page_base;
     fp->page_end = fp->data;
+    fp->page_vchunks = vchunks[0];
 
     Mars_ClearCache();
 
@@ -679,7 +696,7 @@ int Mars_PlayRoQ(const char *fn, void *mem, size_t size, int allowpause, void (*
     buf = (char *)ri + sizeof(*ri);
 
     viddata = (void *)(((intptr_t)buf + 15) & ~15);
-    buf = (void *)(viddata + RoQ_VID_BUF_SIZE);
+    buf = (void *)(viddata + RoQ_VID_BUF_SIZE*2);
 
     snddata = (void *)(((intptr_t)buf + 15) & ~15);
     buf = (void *)(snddata + snd_buf_size);
@@ -692,17 +709,24 @@ int Mars_PlayRoQ(const char *fn, void *mem, size_t size, int allowpause, void (*
     snd_samples[1] = (unsigned *)(((intptr_t)buf + 15) & ~15);
     buf = (void *)((char *)snd_samples[1] + sizeof(int)*RoQ_MAX_SAMPLES);
 
-    vchunks = (void *)(((intptr_t)buf + 15) & ~15);
-    buf = (void *)((char *)vchunks + sizeof(*vchunks));
+    vchunks[0] = (void *)(((intptr_t)buf + 15) & ~15);
+    buf = (void *)((char *)vchunks[0] + sizeof(marsrbuf_t));
+
+    vchunks[1] = (void *)(((intptr_t)buf + 15) & ~15);
+    buf = (void *)((char *)vchunks[1] + sizeof(marsrbuf_t));
 
     schunks = (void *)(((intptr_t)buf + 15) & ~15);
     buf = (void *)((char *)schunks + sizeof(*schunks));
+
+    vid = 0;
 
     if (buf > (char *)mem + size) {
         return -1;
     }
 
-    ringbuf_init(vchunks, viddata, RoQ_VID_BUF_SIZE, 0);
+    ringbuf_init(vchunks[0], viddata, RoQ_VID_BUF_SIZE, 0);
+
+    ringbuf_init(vchunks[1], viddata + RoQ_VID_BUF_SIZE, RoQ_VID_BUF_SIZE, 0);
 
     secsnd(2);
 
@@ -736,14 +760,6 @@ int Mars_PlayRoQ(const char *fn, void *mem, size_t size, int allowpause, void (*
     ringbuf_init(schunks, snddata, snd_buf_size, 1);
 
     secsnd(1);
-
-    // buffer some initial data, but not for too long
-    starttics = Mars_GetTicCount();
-    while (roq_buffer(ri->fp) == 1) {
-        if (Mars_GetTicCount() > starttics + 300) {
-            break;
-        }
-    }
 
     roq_init_video(ri);
 
